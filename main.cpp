@@ -71,26 +71,10 @@ string genSalt(){
     return to_string(rand() %  max + min);
 }
 
-void addNewUser(){
-    sqlite3* db;
-    string username;
-    string password;
+void saveNewUserToDb(string username, string password){
+    
     string salt = genSalt();
-    
-    cout << "Enter Username (Max Size 30 Characters):";
-    getline(cin, username);
-    while (username.length() > 30) {
-        cout << "Try Again" << endl;
-        getline(cin, username);
-    }
-    
-    cout << "Enter Password (Max Size 30 Characters):";
-    getline(cin, password);
-    while (password.length() > 30) {
-        cout << "Try Again" << endl;
-        getline(cin, password);
-    }
-    
+    sqlite3* db;
     db = openDatabase(db);
     
     char *zErrMsg = 0;
@@ -115,6 +99,68 @@ void addNewUser(){
     
         sqlite3_close(db);
     }
+}
+
+int checkForExistingUser(string username){
+    
+    sqlite3* db;
+    db = openDatabase(db);
+    
+    char *zErrMsg = 0;
+    sqlite3_stmt *stmt;
+    const char *pzTest;
+    char *szSQL;
+
+    szSQL = "SELECT COUNT(*) FROM users WHERE username = (?)";
+    
+    int rc = sqlite3_prepare(db, szSQL, 47, &stmt, &pzTest);
+    int numOfMatchingNames = 1;
+    
+    if( rc == SQLITE_OK ) {
+        // bind the value 
+        sqlite3_bind_text(stmt, 1, username.c_str(), username.size(), 0);
+
+        // commit 
+        sqlite3_step(stmt);
+        numOfMatchingNames = sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+    
+        sqlite3_close(db);
+    }
+    return numOfMatchingNames;
+}
+
+void addNewUser(){
+    
+    string username;
+    string password;
+    
+    cout << "Enter Username (Max Size 30 Characters):";
+    getline(cin, username);
+    while (username.length() > 30) {
+        cout << "Username is to long. try again" << endl;
+        getline(cin, username);
+    }
+    
+    while (username.length() > 30) {
+        cout << "Username is to long. try again" << endl;
+        getline(cin, username);
+    }
+    
+    
+    while (checkForExistingUser(username) != 0) {
+        cout << "Username is already used. try again" << endl;
+        getline(cin, username);
+    }
+    
+    cout << "Enter Password (Max Size 30 Characters):";
+    getline(cin, password);
+    while (password.length() > 30) {
+        cout << "Password is to long. try again" << endl;
+        getline(cin, password);
+    }
+    
+    saveNewUserToDb(username, password);
 }
 
 int main(){
