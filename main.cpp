@@ -3,6 +3,9 @@
 #include <iostream>
 #include <iomanip>
 #include <sqlite3.h>
+#include <openssl/sha.h>
+#include "stdlib.h"
+#include "time.h"
 
 using namespace std;
 
@@ -41,22 +44,52 @@ void createDatabase(){
     sqlite3* db;
 
     db = openDatabase(db);
-    db = executeSqlQueryNoParams("CREATE TABLE USERS( ID INT PRIMARY KEY, USERNAME  TEXT, SALT INT, PASSWORD TEXT );", db);
-    db = executeSqlQueryNoParams("CREATE TABLE MESSAGES( ID INT PRIMARY KEY, TIMESTAMP INT, SENDER INT, RECEIVER INT, MESSAGE TEXT);", db);
+    db = executeSqlQueryNoParams("CREATE TABLE users(user_id INTEGER PRIMARY KEY, username  TEXT, salt TEXT, password TEXT);", db);
+    db = executeSqlQueryNoParams("CREATE TABLE messages(message_id INTEGER PRIMARY KEY, timestamp INTEGER, sender INTEGER, reciever INTEGER, message TEXT);", db);
     
     sqlite3_close(db);
 }
 
+string sha256(const string str)
+{
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_CTX sha256;
+    SHA256_Init(&sha256);
+    SHA256_Update(&sha256, str.c_str(), str.size());
+    SHA256_Final(hash, &sha256);
+    stringstream ss;
+    for(int i = 0; i < SHA256_DIGEST_LENGTH; i++)
+    {
+        ss << hex << setw(2) << setfill('0') << (int)hash[i];
+    }
+    return ss.str();
+}
+
+string genSalt(){
+    long max = 999999999999999999;
+    long min = 100000000000000000;
+    return to_string(rand() %  max + min);
+}
+
 void addNewUser(){
     sqlite3* db;
-    char username [30];
-    char password [30];
+    string username;
+    string password;
+    string salt = genSalt();
     
     cout << "Enter Username (Max Size 30 Characters):";
-    cin >> setw(31) >> username;
-
+    getline(cin, username);
+    while (username.length() > 30) {
+        cout << "Try Again" << endl;
+        getline(cin, username);
+    }
+    
     cout << "Enter Password (Max Size 30 Characters):";
-    cin >> setw(31) >> password;
+    getline(cin, password);
+    while (password.length() > 30) {
+        cout << "Try Again" << endl;
+        getline(cin, password);
+    }
     
     db = openDatabase(db);
     
@@ -65,17 +98,16 @@ void addNewUser(){
     const char *pzTest;
     char *szSQL;
 
-    szSQL = "insert into USERS (ID, USERNAME, SALT, PASSWORD) values (?,?,?,?)";
+    szSQL = "INSERT INTO users (username, salt, password) VALUES (?,?,?)";
 
     int rc = sqlite3_prepare(db, szSQL, 65, &stmt, &pzTest);
 
     if( rc == SQLITE_OK ) {
         // bind the value 
-        sqlite3_bind_int(stmt, 1, 3);
-        sqlite3_bind_text(stmt, 2, username, 30, 0);
-        sqlite3_bind_int(stmt, 3, 54325);
-        sqlite3_bind_text(stmt, 4, password, 30, 0);
-        
+        string hashPassword = sha256(salt + password);
+        sqlite3_bind_text(stmt, 1, username.c_str(), username.size(), 0);
+        sqlite3_bind_text(stmt, 2, salt.c_str(), salt.size(), 0);
+        sqlite3_bind_text(stmt, 3, hashPassword.c_str(), hashPassword.size(), 0);
 
         // commit 
         sqlite3_step(stmt);
@@ -85,8 +117,8 @@ void addNewUser(){
     }
 }
 
-
 int main(){
+    srand(time(NULL));
     createDatabase();
     addNewUser();
 };
