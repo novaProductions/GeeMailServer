@@ -4,8 +4,7 @@
 #include <iomanip>
 #include <sqlite3.h>
 #include <openssl/sha.h>
-#include "stdlib.h"
-#include "time.h"
+#include "User.h"
 
 using namespace std;
 
@@ -99,6 +98,7 @@ void saveNewUserToDb(string username, string password){
     
         sqlite3_close(db);
     }
+    
 }
 
 int checkForExistingUser(string username){
@@ -130,6 +130,44 @@ int checkForExistingUser(string username){
     return numOfMatchingNames;
 }
 
+
+User getUsersInfo(string username){
+    
+    sqlite3* db;
+    db = openDatabase(db);
+    
+    char *zErrMsg = 0;
+    sqlite3_stmt *stmt;
+    const char *pzTest;
+    char *szSQL;
+
+    szSQL = "SELECT * FROM users WHERE username = (?)";
+    
+    int rc = sqlite3_prepare(db, szSQL, 47, &stmt, &pzTest);
+    
+    User currentUser;
+    
+    if( rc == SQLITE_OK ) {
+        // bind the value 
+        sqlite3_bind_text(stmt, 1, username.c_str(), username.size(), 0);
+
+        // commit 
+        sqlite3_step(stmt);
+        
+        
+        if(sqlite3_column_type(stmt, 0) != SQLITE_NULL){
+            currentUser.setUsername(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))));
+            currentUser.setSalt(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))));
+            currentUser.setPassword(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))));
+        }
+
+        sqlite3_finalize(stmt);
+    
+        sqlite3_close(db);
+    }
+    
+    return currentUser;
+}
 void addNewUser(){
     
     string username;
@@ -141,12 +179,6 @@ void addNewUser(){
         cout << "Username is to long. try again" << endl;
         getline(cin, username);
     }
-    
-    while (username.length() > 30) {
-        cout << "Username is to long. try again" << endl;
-        getline(cin, username);
-    }
-    
     
     while (checkForExistingUser(username) != 0) {
         cout << "Username is already used. try again" << endl;
@@ -163,8 +195,83 @@ void addNewUser(){
     saveNewUserToDb(username, password);
 }
 
+User userInputLoginCreds(){
+    string username;
+    string enteredPassword;
+    
+    cout << "Enter Username (Max Size 30 Characters):";
+    getline(cin, username);
+    while (username.length() > 30) {
+        cout << "Username is to long. try again" << endl;
+        getline(cin, username);
+    }
+    
+    cout << "Enter Password (Max Size 30 Characters):";
+    getline(cin, enteredPassword);
+    while (enteredPassword.length() > 30) {
+        cout << "Password is to long. try again" << endl;
+        getline(cin, enteredPassword);
+    }
+    
+    User currentUSer = getUsersInfo(username);
+    currentUSer.setEnteredPassword(enteredPassword);
+    
+    return currentUSer;
+}
+
+User Login(){
+
+    User currentUser = userInputLoginCreds();
+    while(sha256(currentUser.getSalt() + currentUser.getEnteredPassword()) != currentUser.getPassword()){
+        cout << "User name and password did not match. try again" << endl;
+        currentUser = userInputLoginCreds();
+    }
+    return currentUser;
+}
+
+void mainMenu(User user){
+    string optionSeletected;
+    cout << "Hello, " + user.getUsername() + " you are logged in" << endl;
+    cout << "Enter number for the option you want:" << endl;
+    cout << "1 - Send Message" << endl;
+    cout << "2 - View Messages" << endl;
+    cout << "3 - Create New User" << endl;
+    cout << "4 - Logout" << endl;
+    getline(cin, optionSeletected);
+    while (optionSeletected != "1" && optionSeletected != "2" && optionSeletected != "3" && optionSeletected != "4") {
+        cout << "That is not a valid option. try again" << endl;
+        getline(cin, optionSeletected);
+    }
+}
+
+void startingMenu(){
+    string optionSeletected;
+    cout << "Enter number for the option you want:" << endl;
+    cout << "1 - Login" << endl;
+    cout << "2 - Create New User" << endl;
+    getline(cin, optionSeletected);
+    while (optionSeletected != "1" && optionSeletected != "2") {
+        cout << "That is not a valid option. try again" << endl;
+        getline(cin, optionSeletected);
+    }
+    
+    if(optionSeletected == "1"){
+        cout << "Login - Selected" << endl;
+        User currentUser = Login();
+        mainMenu(currentUser);
+    }else if(optionSeletected == "2"){
+        cout << "Create New User - Selected" << endl;
+        addNewUser();
+        startingMenu();
+    }
+}
+
 int main(){
     srand(time(NULL));
     createDatabase();
-    addNewUser();
+    startingMenu();
+
+    
+    
+    
 };
