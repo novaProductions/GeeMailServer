@@ -263,10 +263,26 @@ void saveMessageToDb(int senderId, int recieverId, string message){
     
 }
 
-void sendMessage(){
+void sendMessage(int senderId){
+    string username;
+    string message;
+    
     cout << "Who Do You Want To Send A Message To? (Valid Username):" << endl;
+    getline(cin, username);
+    while (checkForExistingUser(username) != 1) {
+        cout << "User is not found. Try again " + username << endl;
+        getline(cin, username);
+    }
+    
+    User reciever = getUsersInfo(username);
     cout << "Type your message (Under 300 characters)" << endl;
-    saveMessageToDb(1, 2, "Some message");
+    
+    getline(cin, message);
+    while (message.length() > 300) {
+        cout << "Message is to large max is 300 characters" << endl;
+        getline(cin, message);
+    }
+    saveMessageToDb(senderId, reciever.getUserId(), message);
 }
 
 void mainMenu(User user){
@@ -285,7 +301,7 @@ void mainMenu(User user){
     
     if(optionSeletected == "1"){
         cout << "Send Message - Selected" << endl;
-        sendMessage();
+        sendMessage(user.getUserId());
     }else if(optionSeletected == "2"){
         cout << "View Message - Selected" << endl;
     }else if(optionSeletected == "3"){
