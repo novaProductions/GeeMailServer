@@ -5,7 +5,10 @@ class User
 {
     public:
         User();
-        User(std::string username, std::string salt, std::string password);
+        User(int userid, std::string username, std::string salt, std::string password);
+        
+        int getUserId();
+        int setUserId(int userId);
         
         std::string getUsername();
         std::string setUsername(std::string username);
@@ -19,6 +22,7 @@ class User
         std::string getEnteredPassword();
         std::string setEnteredPassword(std::string enteredPassword);
     private: 
+        int userId;
         std::string username;
         std::string salt;
         std::string password;

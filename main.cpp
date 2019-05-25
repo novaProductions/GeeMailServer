@@ -5,6 +5,7 @@
 #include <sqlite3.h>
 #include <openssl/sha.h>
 #include "User.h"
+#include "Message.h"
 
 using namespace std;
 
@@ -44,7 +45,7 @@ void createDatabase(){
 
     db = openDatabase(db);
     db = executeSqlQueryNoParams("CREATE TABLE users(user_id INTEGER PRIMARY KEY, username  TEXT, salt TEXT, password TEXT);", db);
-    db = executeSqlQueryNoParams("CREATE TABLE messages(message_id INTEGER PRIMARY KEY, timestamp INTEGER, sender INTEGER, reciever INTEGER, message TEXT);", db);
+    db = executeSqlQueryNoParams("CREATE TABLE messages(message_id INTEGER PRIMARY KEY, sender INTEGER, reciever INTEGER, message TEXT);", db);
     
     sqlite3_close(db);
 }
@@ -156,6 +157,7 @@ User getUsersInfo(string username){
         
         
         if(sqlite3_column_type(stmt, 0) != SQLITE_NULL){
+            currentUser.setUserId(sqlite3_column_int(stmt, 0));
             currentUser.setUsername(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))));
             currentUser.setSalt(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))));
             currentUser.setPassword(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))));
@@ -193,6 +195,8 @@ void addNewUser(){
     }
     
     saveNewUserToDb(username, password);
+    
+    cout << "Created User: " + username << endl;
 }
 
 User userInputLoginCreds(){
@@ -229,6 +233,42 @@ User Login(){
     return currentUser;
 }
 
+void saveMessageToDb(int senderId, int recieverId, string message){
+    
+    string salt = genSalt();
+    sqlite3* db;
+    db = openDatabase(db);
+    
+    char *zErrMsg = 0;
+    sqlite3_stmt *stmt;
+    const char *pzTest;
+    char *szSQL;
+
+    szSQL = "INSERT INTO messages (sender, reciever, message) VALUES (?,?,?)";
+
+    int rc = sqlite3_prepare(db, szSQL, 63, &stmt, &pzTest);
+
+    if( rc == SQLITE_OK ) {
+        // bind the value 
+        sqlite3_bind_int(stmt, 1, senderId);
+        sqlite3_bind_int(stmt, 2, recieverId);
+        sqlite3_bind_text(stmt, 3, message.c_str(), message.size(), 0);
+
+        // commit 
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    
+        sqlite3_close(db);
+    }
+    
+}
+
+void sendMessage(){
+    cout << "Who Do You Want To Send A Message To? (Valid Username):" << endl;
+    cout << "Type your message (Under 300 characters)" << endl;
+    saveMessageToDb(1, 2, "Some message");
+}
+
 void mainMenu(User user){
     string optionSeletected;
     cout << "Hello, " + user.getUsername() + " you are logged in" << endl;
@@ -236,11 +276,24 @@ void mainMenu(User user){
     cout << "1 - Send Message" << endl;
     cout << "2 - View Messages" << endl;
     cout << "3 - Create New User" << endl;
-    cout << "4 - Logout" << endl;
+    cout << "4 - Exit And Logout" << endl;
     getline(cin, optionSeletected);
     while (optionSeletected != "1" && optionSeletected != "2" && optionSeletected != "3" && optionSeletected != "4") {
         cout << "That is not a valid option. try again" << endl;
         getline(cin, optionSeletected);
+    }
+    
+    if(optionSeletected == "1"){
+        cout << "Send Message - Selected" << endl;
+        sendMessage();
+    }else if(optionSeletected == "2"){
+        cout << "View Message - Selected" << endl;
+    }else if(optionSeletected == "3"){
+        cout << "Create New User - Selected" << endl;
+        addNewUser();
+        mainMenu(user);
+    }else if(optionSeletected == "4"){
+        cout << "Exit And Logout - Selected" << endl;
     }
 }
 
@@ -249,8 +302,9 @@ void startingMenu(){
     cout << "Enter number for the option you want:" << endl;
     cout << "1 - Login" << endl;
     cout << "2 - Create New User" << endl;
+    cout << "3 - Exit" << endl;
     getline(cin, optionSeletected);
-    while (optionSeletected != "1" && optionSeletected != "2") {
+    while (optionSeletected != "1" && optionSeletected != "2" && optionSeletected != "3") {
         cout << "That is not a valid option. try again" << endl;
         getline(cin, optionSeletected);
     }
@@ -263,15 +317,15 @@ void startingMenu(){
         cout << "Create New User - Selected" << endl;
         addNewUser();
         startingMenu();
+    }else if(optionSeletected == "3"){
+        cout << "Exit - Selected" << endl;
     }
 }
 
 int main(){
     srand(time(NULL));
     createDatabase();
+    saveMessageToDb(3, 4, "send data");
     startingMenu();
-
-    
-    
     
 };
