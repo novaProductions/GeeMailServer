@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <sqlite3.h>
 #include <openssl/sha.h>
+#include <vector>
 #include "User.h"
 #include "Message.h"
 
@@ -263,14 +264,14 @@ void saveMessageToDb(int senderId, int recieverId, string message){
     
 }
 
-void sendMessage(int senderId){
+void sendMessage(User user){
     string username;
     string message;
     
     cout << "Who Do You Want To Send A Message To? (Valid Username):" << endl;
     getline(cin, username);
     while (checkForExistingUser(username) != 1) {
-        cout << "User is not found. Try again " + username << endl;
+        cout << "User is not found. Try again" << endl;
         getline(cin, username);
     }
     
@@ -282,7 +283,113 @@ void sendMessage(int senderId){
         cout << "Message is to large max is 300 characters" << endl;
         getline(cin, message);
     }
-    saveMessageToDb(senderId, reciever.getUserId(), message);
+    saveMessageToDb(user.getUserId(), reciever.getUserId(), message);
+    
+    string optionSeletected;
+    cout << "Enter number for the option you want:" << endl;
+    cout << "1 - Send Message" << endl;
+    cout << "2 - Exit And Logout" << endl;
+    getline(cin, optionSeletected);
+    while (optionSeletected != "1" && optionSeletected != "2") {
+        cout << "That is not a valid option. try again" << endl;
+        getline(cin, optionSeletected);
+    }
+    if(optionSeletected == "1"){
+        cout << "Send Message - Selected" << endl;
+        sendMessage(user);
+    }else if(optionSeletected == "2"){
+        cout << "Exit And Logout - Selected" << endl;
+    }
+}
+
+vector<Message> getConversation(int currentUserId, int otherPartyId){
+    
+    sqlite3* db;
+    db = openDatabase(db);
+    
+    char *zErrMsg = 0;
+    sqlite3_stmt *stmt;
+    const char *pzTest;
+    char *szSQL;
+
+    szSQL = "SELECT * FROM messages WHERE (sender = (?) AND reciever = (?)) OR (sender = (?) AND reciever = (?))";
+    
+    int rc = sqlite3_prepare(db, szSQL, 99, &stmt, &pzTest);
+    
+    
+    vector<Message> conversation;
+    
+    if( rc == SQLITE_OK ) {
+        // bind the value 
+        sqlite3_bind_int(stmt, 1, currentUserId);
+        sqlite3_bind_int(stmt, 2, otherPartyId);
+        sqlite3_bind_int(stmt, 3, otherPartyId);
+        sqlite3_bind_int(stmt, 4, currentUserId);
+
+        // commit 
+        ;
+        
+        while(sqlite3_step(stmt) != 101){
+            if(sqlite3_column_type(stmt, 0) != SQLITE_NULL){
+            Message message;
+            message.setMessageId(sqlite3_column_int(stmt, 0));
+            message.setSenderId(sqlite3_column_int(stmt, 1));
+            message.setRecieverId(sqlite3_column_int(stmt, 2));
+            message.setMessage(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))));
+            conversation.push_back(message);
+            }
+        }
+
+        sqlite3_finalize(stmt);
+    
+        sqlite3_close(db);
+    }
+    return conversation;
+}
+
+void viewMessages(User user){
+    string username;
+    
+    cout << "Who's messages do you want to view? (Valid Username):" << endl;
+    getline(cin, username);
+    while (checkForExistingUser(username) != 1) {
+        cout << "User 1 not found. Try again" << endl;
+        getline(cin, username);
+    }
+    User targetUser = getUsersInfo(username);
+    
+    vector<Message> conversation = getConversation(user.getUserId(), targetUser.getUserId());
+    
+    if(conversation.size() == 0){
+        cout << "You have not recieved or sent messages from/to this user" << endl;
+    }
+    
+    for(int i=0; i < conversation.size(); i++){
+            string senderUsername;
+            if(user.getUserId() == conversation[i].getSenderId()){
+                senderUsername = user.getUsername();
+            }
+            else(targetUser.getUserId() == conversation[i].getSenderId()){
+                senderUsername = targetUser.getUsername();
+            }
+            cout << senderUsername + " : " + conversation[i].getMessage() << endl;
+    }
+    
+    string optionSeletected;
+    cout << "Enter number for the option you want:" << endl;
+    cout << "1 - View More Messages" << endl;
+    cout << "2 - Exit And Logout" << endl;
+    getline(cin, optionSeletected);
+    while (optionSeletected != "1" && optionSeletected != "2") {
+        cout << "That is not a valid option. try again" << endl;
+        getline(cin, optionSeletected);
+    }
+    if(optionSeletected == "1"){
+        cout << "View More Messages - Selected" << endl;
+        viewMessages(user);
+    }else if(optionSeletected == "2"){
+        cout << "Exit And Logout - Selected" << endl;
+    }
 }
 
 void mainMenu(User user){
@@ -301,9 +408,10 @@ void mainMenu(User user){
     
     if(optionSeletected == "1"){
         cout << "Send Message - Selected" << endl;
-        sendMessage(user.getUserId());
+        sendMessage(user);
     }else if(optionSeletected == "2"){
         cout << "View Message - Selected" << endl;
+        viewMessages(user);
     }else if(optionSeletected == "3"){
         cout << "Create New User - Selected" << endl;
         addNewUser();
@@ -341,7 +449,6 @@ void startingMenu(){
 int main(){
     srand(time(NULL));
     createDatabase();
-    saveMessageToDb(3, 4, "send data");
     startingMenu();
     
 };

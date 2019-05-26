@@ -17,7 +17,7 @@ class Message{
         int setRecieverId(int recieverId);
         
         std::string getMessage();
-        std::string setMessage(std::string Message);
+        std::string setMessage(std::string message);
     
     private:
         int messageId;

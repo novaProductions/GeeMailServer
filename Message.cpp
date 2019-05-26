@@ -39,9 +39,9 @@ int Message::setRecieverId(int recieverId){
 };
         
 std::string Message::getMessage(){
-    return messageId;
+    return message;
 };
-std::string Message::setMessage(std::string Message){
+std::string Message::setMessage(std::string message){
     Message::message = message;
     return Message::message;
 };
