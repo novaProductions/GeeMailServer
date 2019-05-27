@@ -5,6 +5,7 @@
 #include <sqlite3.h>
 #include <openssl/sha.h>
 #include <vector>
+#include <gcrypt.h>
 #include "User.h"
 #include "Message.h"
 
@@ -369,7 +370,7 @@ void viewMessages(User user){
             if(user.getUserId() == conversation[i].getSenderId()){
                 senderUsername = user.getUsername();
             }
-            else(targetUser.getUserId() == conversation[i].getSenderId()){
+            else(targetUser.getUserId() == conversation[i].getSenderId());{
                 senderUsername = targetUser.getUsername();
             }
             cout << senderUsername + " : " + conversation[i].getMessage() << endl;
@@ -391,6 +392,56 @@ void viewMessages(User user){
         cout << "Exit And Logout - Selected" << endl;
     }
 }
+
+gcry_cipher_hd_t setUpCryptoCipher(char * salsaKey, char * iniVector){
+    gcry_cipher_hd_t gcryCipherHd;
+    gcry_cipher_open(
+        &gcryCipherHd, // gcry_cipher_hd_t *
+        GCRY_CIPHER_SALSA20,   // int
+        GCRY_CIPHER_MODE_STREAM,   // int
+        0);            // unsigned int
+    gcry_cipher_setkey(gcryCipherHd, salsaKey, 32);
+    gcry_cipher_setiv(gcryCipherHd, iniVector, 8);
+    return gcryCipherHd;
+}
+
+char * encrypt(string input, char * salsaKey, char * iniVector){
+    gcry_cipher_hd_t gcryCipherHd = setUpCryptoCipher(salsaKey, iniVector);
+    
+    size_t txtLength = input.length();
+    char * encBuffer = new char[txtLength];
+    char * textBuffer = new char[txtLength];
+    copy(input.begin(), input.end(), textBuffer);
+    textBuffer[input.size()] = '\0';
+    
+    printf("predecrypt: %s\n", encBuffer);
+    gcry_cipher_encrypt(
+        gcryCipherHd, // gcry_cipher_hd_t
+        encBuffer,    // void *
+        txtLength,    // size_t
+        textBuffer,    // const void *
+        txtLength);   // size_t
+    printf("postdecrypt: %s\n", encBuffer);
+    return encBuffer;
+}
+
+string decrypt(char * encBuffer, char * salsaKey, char * iniVector){
+    gcry_cipher_hd_t gcryCipherHd = setUpCryptoCipher(salsaKey, iniVector);
+
+    size_t txtLength = 101;
+    char * textBuffer = new char[txtLength];
+    
+    printf("predecrypt: %s\n", textBuffer);
+    gcry_cipher_decrypt( gcryCipherHd, // gcry_cipher_hd_t
+        encBuffer,    // void *
+        txtLength,    // size_t
+        textBuffer,    // const void *
+        txtLength);   // size_t
+    printf("postdecrypt: %s\n", textBuffer);    
+     string decryptedText(textBuffer, txtLength);
+     return decryptedText;
+}
+
 
 void mainMenu(User user){
     string optionSeletected;
@@ -446,9 +497,109 @@ void startingMenu(){
     }
 }
 
+gcry_cipher_hd_t setUpCipher(char * sym_key, char * init_vector){
+    #define GCRY_CIPHER GCRY_CIPHER_AES256   // Pick the cipher here
+    
+    int gcry_mode=GCRY_CIPHER_MODE_CBC;
+    
+    gcry_error_t     gcry_ret;
+    gcry_cipher_hd_t cipher_hd;
+
+    if (!gcry_control (GCRYCTL_ANY_INITIALIZATION_P)) {
+        gcry_check_version(NULL); /* before calling any other functions */
+    }
+
+    gcry_ret = gcry_cipher_open(
+        &cipher_hd,    // gcry_cipher_hd_t *hd
+        GCRY_CIPHER,   // int algo
+        gcry_mode,     // int mode
+        0);            // unsigned int flags
+    if (gcry_ret) {
+        printf("gcry_cipher_open failed:  %s/%s\n",
+                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
+        return cipher_hd;
+    }
+
+    size_t key_length = gcry_cipher_get_algo_keylen(GCRY_CIPHER);
+    gcry_ret = gcry_cipher_setkey(cipher_hd, sym_key, key_length);
+    if (gcry_ret) {
+        printf("gcry_cipher_setkey failed:  %s/%s\n",
+                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
+        return cipher_hd;
+    }
+
+    size_t blk_length = gcry_cipher_get_algo_blklen(GCRY_CIPHER);
+    gcry_ret = gcry_cipher_setiv(cipher_hd, init_vector, blk_length);
+    if (gcry_ret) {
+        printf("gcry_cipher_setiv failed:  %s/%s\n",
+                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
+        return cipher_hd;
+    }
+    return cipher_hd;
+}
+
+char * encrypt(char * plaintxt, char * sym_key, char * init_vector, int plaintxt_length)
+{
+    #define GCRY_CIPHER GCRY_CIPHER_AES256   // Pick the cipher here
+    
+    gcry_error_t     gcry_ret;
+    gcry_cipher_hd_t cipher_hd = setUpCipher(sym_key, init_vector);
+
+
+    char * encrypted_txt = (char *)malloc(plaintxt_length);
+    printf("plaintxt      = %s\n", plaintxt);
+    gcry_ret = gcry_cipher_encrypt(
+        cipher_hd,         // gcry_cipher_hd_t h
+        encrypted_txt,      // unsigned char *out
+        plaintxt_length,   // size_t outsize
+        plaintxt,          // const unsigned char *in
+        plaintxt_length);  // size_t inlen
+    if (gcry_ret) {
+        printf("gcry_cipher_encrypt failed:  %s/%s\n",
+                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
+        return encrypted_txt;
+    }
+    
+     printf("encrypted_txt = %s\n", encrypted_txt);
+
+    // clean up
+    gcry_cipher_close(cipher_hd);
+    return encrypted_txt;
+}
+
+void decrypt(char * encrypted_txt, char * sym_key, char * init_vector, int plaintxt_length)
+{
+    #define GCRY_CIPHER GCRY_CIPHER_AES256   // Pick the cipher here
+    
+    gcry_error_t     gcry_ret;
+    gcry_cipher_hd_t cipher_hd = setUpCipher(sym_key, init_vector);
+
+    char * decrpyted_txt = (char *)malloc(plaintxt_length);
+
+    gcry_ret = gcry_cipher_decrypt(
+        cipher_hd,          // gcry_cipher_hd_t h
+        decrpyted_txt,      // unsigned char *out
+        plaintxt_length,    // size_t outsize
+        encrypted_txt,       // const unsigned char *in
+        plaintxt_length);   // size_t inlen
+    if (gcry_ret) {
+        printf("gcry_cipher_decrypt failed:  %s/%s\n",
+                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
+        return;
+    }
+    printf("decrpyted_txt = %s\n", decrpyted_txt);
+
+    // clean up
+    gcry_cipher_close(cipher_hd);
+    //return decrpyted_txt;
+}
+
+
 int main(){
     srand(time(NULL));
     createDatabase();
+    //size_t plaintxt_length = strlen(plaintxt) + 1; // string plus termination
+    decrypt(encrypt("123456789 abcdefghijklmnopqrstuvwzyz ABCDEFGHIJKLMNOPQRSTUVWZYZ", "one test AES key, just for test now", "a test ini value", 64), "one test AES key, just for test now", "a test ini value", 64);
     startingMenu();
     
 };
