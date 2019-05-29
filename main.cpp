@@ -162,6 +162,7 @@ User getUsersInfo(string username){
         if(sqlite3_column_type(stmt, 0) != SQLITE_NULL){
             currentUser.setUserId(sqlite3_column_int(stmt, 0));
             currentUser.setUsername(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))));
+            currentUser.setUsername(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))));
             currentUser.setSalt(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))));
             currentUser.setPassword(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))));
         }
@@ -266,7 +267,7 @@ void saveMessageToDb(int senderId, int recieverId, string message, string iv){
     
 }
 
-gcry_cipher_hd_t setUpCipher(const char * sym_key, const char * init_vector){
+gcry_cipher_hd_t setUpCipher(char * sym_key, const char * init_vector){
     #define GCRY_CIPHER GCRY_CIPHER_AES256   // Pick the cipher here
     
     int gcry_mode=GCRY_CIPHER_MODE_CBC;
@@ -307,7 +308,7 @@ gcry_cipher_hd_t setUpCipher(const char * sym_key, const char * init_vector){
     return cipher_hd;
 }
 
-string encrypt(string plaintxt, const char * sym_key, const char * init_vector)
+string encrypt(string plaintxt, char * sym_key, const char * init_vector)
 {
     #define GCRY_CIPHER GCRY_CIPHER_AES256   // Pick the cipher here
     int plaintxt_length = 320;
@@ -335,16 +336,10 @@ string encrypt(string plaintxt, const char * sym_key, const char * init_vector)
 
     // clean up
     gcry_cipher_close(cipher_hd);
-            cout << "encryptedMessage " + bitset<128>(encrypted_txt_str) << endl;
-            cout << bitset<128>(encrypted_txt_str.c_str()) << endl;
-            cout << "key "<< endl;
-            cout << sym_key << endl;
-            cout << "iv "<< endl;
-            cout << init_vector << endl;
     return encrypted_txt_str;
 }
 
-string decrypt(string encrypted_txt_str, const char * sym_key, const char * init_vector)
+string decrypt(string encrypted_txt_str, char * sym_key, const char * init_vector)
 {
     #define GCRY_CIPHER GCRY_CIPHER_AES256   // Pick the cipher here
     int plaintxt_length = 320;
@@ -373,21 +368,13 @@ string decrypt(string encrypted_txt_str, const char * sym_key, const char * init
 
     // clean up
     gcry_cipher_close(cipher_hd);
-            cout << "encryptedMessage " + bitset<128>(encrypted_txt_str) << endl;
-            cout << bitset<128>(encrypted_txt_str.c_str()) << endl;
-            cout << "decryptedMessage " + bitset<128>(decrypted_txt_str) << endl;
-            cout << bitset<128>(decrypted_txt_str.c_str()) << endl;
-            cout << "key "<< endl;
-            cout << sym_key << endl;
-            cout << "iv "<< endl;
-            cout << init_vector << endl;
     return decrypted_txt_str;
 }
 
 void sendMessage(User user){
     string username;
     string message;
-    string key;
+    char * key = (char*)calloc(32,sizeof(char));
     string iv = genSalt();
     
     cout << "Who Do You Want To Send A Message To? (Valid Username):" << endl;
@@ -407,23 +394,17 @@ void sendMessage(User user){
     }
     
     cout << "Enter the key used to protect your message? (min 16- max 32 characters):" << endl;
-    while (key.size() > 32) {
+    while (strlen(key) > 32) {
         cout << "Key must be under 32 characters" << endl;
-        getline(cin, key);
+        cin.getline(key, 32);
     }
-    while (key.size() < 16) {
+    while (strlen(key) < 16) {
         cout << "Key must be above 16 characters" << endl;
-        getline(cin, key);
+        cin.getline(key, 32);
     }
     
-    string encryptedMessage = encrypt(message, key.c_str(), iv.c_str());
+    string encryptedMessage = encrypt(message, key, iv.c_str());
     saveMessageToDb(user.getUserId(), reciever.getUserId(), encryptedMessage, iv);
-    cout << "encryptedMessage " + encryptedMessage << endl;
-    cout << encryptedMessage.c_str() << endl;
-    cout << "key " + key << endl;
-    cout << key.c_str() << endl;
-    cout << "iv " + iv << endl;
-    cout << iv.c_str() << endl;
     
     string optionSeletected;
     cout << "Enter number for the option you want:" << endl;
@@ -490,7 +471,7 @@ vector<Message> getConversation(int currentUserId, int otherPartyId){
 
 void viewMessages(User user){
     string username;
-    string key;
+    char * key = (char*)calloc(32,sizeof(char));
     
     cout << "Who's messages do you want to view? (Valid Username):" << endl;
     getline(cin, username);
@@ -519,16 +500,8 @@ void viewMessages(User user){
             
             string iv = conversation[i].getIv();
             
-            string decryptedMessage = decrypt(conversation[i].getMessage(), key.c_str(), iv.c_str());
+            string decryptedMessage = decrypt(conversation[i].getMessage(), key, iv.c_str());
             cout << senderUsername + " : " + decryptedMessage << endl;
-            cout << "encryptedMessage " + conversation[i].getMessage() << endl;
-            cout << conversation[i].getMessage().c_str() << endl;
-            cout << "decryptedMessage " + decryptedMessage << endl;
-            cout << decryptedMessage.c_str() << endl;
-            cout << "key " + key << endl;
-            cout << key.c_str() << endl;
-            cout << "iv " + iv << endl;
-            cout << iv.c_str() << endl;
         }
     }
     
@@ -612,7 +585,7 @@ int main(){
     string message = "some data";
     string iv = "100000000230179139";
     string key = "keykeykeykeykeykey";
-    cout << decrypt(encrypt(message, key.c_str(), iv.c_str()), key.c_str(), iv.c_str()) << endl;
+    //cout << decrypt(encrypt(message, key.c_str(), iv.c_str()), key.c_str(), iv.c_str()) << endl;
 
     startingMenu();
     
