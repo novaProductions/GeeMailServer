@@ -37,6 +37,14 @@ int Message::setRecieverId(int recieverId){
     Message::recieverId = recieverId;
     return Message::recieverId;
 };
+
+std::string Message::getIv(){
+    return iv;
+};
+std::string Message::setIv(std::string iv){
+    Message::iv = iv;
+    return Message::iv;        
+};
         
 std::string Message::getMessage(){
     return message;

@@ -8,6 +8,7 @@
 #include <gcrypt.h>
 #include "User.h"
 #include "Message.h"
+#include <bitset>
 
 using namespace std;
 
@@ -47,7 +48,7 @@ void createDatabase(){
 
     db = openDatabase(db);
     db = executeSqlQueryNoParams("CREATE TABLE users(user_id INTEGER PRIMARY KEY, username  TEXT, salt TEXT, password TEXT);", db);
-    db = executeSqlQueryNoParams("CREATE TABLE messages(message_id INTEGER PRIMARY KEY, sender INTEGER, reciever INTEGER, message TEXT);", db);
+    db = executeSqlQueryNoParams("CREATE TABLE messages(message_id INTEGER PRIMARY KEY, sender INTEGER, reciever INTEGER, message TEXT, iv TEXT);", db);
     
     sqlite3_close(db);
 }
@@ -235,9 +236,8 @@ User Login(){
     return currentUser;
 }
 
-void saveMessageToDb(int senderId, int recieverId, string message){
+void saveMessageToDb(int senderId, int recieverId, string message, string iv){
     
-    string salt = genSalt();
     sqlite3* db;
     db = openDatabase(db);
     
@@ -246,15 +246,16 @@ void saveMessageToDb(int senderId, int recieverId, string message){
     const char *pzTest;
     char *szSQL;
 
-    szSQL = "INSERT INTO messages (sender, reciever, message) VALUES (?,?,?)";
+    szSQL = "INSERT INTO messages (sender, reciever, message, iv) VALUES (?,?,?,?)";
 
-    int rc = sqlite3_prepare(db, szSQL, 63, &stmt, &pzTest);
+    int rc = sqlite3_prepare(db, szSQL, 69, &stmt, &pzTest);
 
     if( rc == SQLITE_OK ) {
         // bind the value 
         sqlite3_bind_int(stmt, 1, senderId);
         sqlite3_bind_int(stmt, 2, recieverId);
         sqlite3_bind_text(stmt, 3, message.c_str(), message.size(), 0);
+        sqlite3_bind_text(stmt, 4, iv.c_str(), iv.size(), 0);
 
         // commit 
         sqlite3_step(stmt);
@@ -265,9 +266,129 @@ void saveMessageToDb(int senderId, int recieverId, string message){
     
 }
 
+gcry_cipher_hd_t setUpCipher(const char * sym_key, const char * init_vector){
+    #define GCRY_CIPHER GCRY_CIPHER_AES256   // Pick the cipher here
+    
+    int gcry_mode=GCRY_CIPHER_MODE_CBC;
+    
+    gcry_error_t     gcry_ret;
+    gcry_cipher_hd_t cipher_hd;
+
+    if (!gcry_control (GCRYCTL_ANY_INITIALIZATION_P)) {
+        gcry_check_version(NULL); /* before calling any other functions */
+    }
+
+    gcry_ret = gcry_cipher_open(
+        &cipher_hd,    // gcry_cipher_hd_t *hd
+        GCRY_CIPHER,   // int algo
+        gcry_mode,     // int mode
+        0);            // unsigned int flags
+    if (gcry_ret) {
+        printf("gcry_cipher_open failed:  %s/%s\n",
+                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
+        return cipher_hd;
+    }
+
+    size_t key_length = gcry_cipher_get_algo_keylen(GCRY_CIPHER);
+    gcry_ret = gcry_cipher_setkey(cipher_hd, sym_key, key_length);
+    if (gcry_ret) {
+        printf("gcry_cipher_setkey failed:  %s/%s\n",
+                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
+        return cipher_hd;
+    }
+
+    size_t blk_length = gcry_cipher_get_algo_blklen(GCRY_CIPHER);
+    gcry_ret = gcry_cipher_setiv(cipher_hd, init_vector, blk_length);
+    if (gcry_ret) {
+        printf("gcry_cipher_setiv failed:  %s/%s\n",
+                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
+        return cipher_hd;
+    }
+    return cipher_hd;
+}
+
+string encrypt(string plaintxt, const char * sym_key, const char * init_vector)
+{
+    #define GCRY_CIPHER GCRY_CIPHER_AES256   // Pick the cipher here
+    int plaintxt_length = 320;
+	
+    gcry_error_t     gcry_ret;
+    gcry_cipher_hd_t cipher_hd = setUpCipher(sym_key, init_vector);
+
+    char * plaintxtBuffer = new char[plaintxt_length];
+    copy(plaintxt.begin(), plaintxt.end(), plaintxtBuffer);
+    plaintxtBuffer[plaintxt.size()] = '\0'; 
+
+    char * encrypted_txt = (char *)malloc(plaintxt_length);
+    gcry_ret = gcry_cipher_encrypt(
+        cipher_hd,         // gcry_cipher_hd_t h
+        encrypted_txt,      // unsigned char *out
+        plaintxt_length,   // size_t outsize
+        plaintxtBuffer,          // const unsigned char *in
+        plaintxt_length);  // size_t inlen
+    string encrypted_txt_str = encrypted_txt;
+    if (gcry_ret) {
+        printf("gcry_cipher_encrypt failed:  %s/%s\n",
+                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
+        return encrypted_txt_str;
+    }
+
+    // clean up
+    gcry_cipher_close(cipher_hd);
+            cout << "encryptedMessage " + bitset<128>(encrypted_txt_str) << endl;
+            cout << bitset<128>(encrypted_txt_str.c_str()) << endl;
+            cout << "key "<< endl;
+            cout << sym_key << endl;
+            cout << "iv "<< endl;
+            cout << init_vector << endl;
+    return encrypted_txt_str;
+}
+
+string decrypt(string encrypted_txt_str, const char * sym_key, const char * init_vector)
+{
+    #define GCRY_CIPHER GCRY_CIPHER_AES256   // Pick the cipher here
+    int plaintxt_length = 320;
+	
+    gcry_error_t     gcry_ret;
+    gcry_cipher_hd_t cipher_hd = setUpCipher(sym_key, init_vector);
+
+    char * encrypted_txt = new char[plaintxt_length];
+    copy(encrypted_txt_str.begin(), encrypted_txt_str.end(), encrypted_txt);
+    encrypted_txt[encrypted_txt_str.size()] = '\0'; 
+
+    char * decrpyted_txt = (char *)malloc(plaintxt_length);
+    
+    gcry_ret = gcry_cipher_decrypt(
+        cipher_hd,          // gcry_cipher_hd_t h
+        decrpyted_txt,      // unsigned char *out
+        plaintxt_length,    // size_t outsize
+        encrypted_txt,       // const unsigned char *in
+        plaintxt_length);   // size_t inlen
+    string decrypted_txt_str = decrpyted_txt;
+    if (gcry_ret) {
+        printf("gcry_cipher_decrypt failed:  %s/%s\n",
+                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
+        return decrypted_txt_str;
+    }
+
+    // clean up
+    gcry_cipher_close(cipher_hd);
+            cout << "encryptedMessage " + bitset<128>(encrypted_txt_str) << endl;
+            cout << bitset<128>(encrypted_txt_str.c_str()) << endl;
+            cout << "decryptedMessage " + bitset<128>(decrypted_txt_str) << endl;
+            cout << bitset<128>(decrypted_txt_str.c_str()) << endl;
+            cout << "key "<< endl;
+            cout << sym_key << endl;
+            cout << "iv "<< endl;
+            cout << init_vector << endl;
+    return decrypted_txt_str;
+}
+
 void sendMessage(User user){
     string username;
     string message;
+    string key;
+    string iv = genSalt();
     
     cout << "Who Do You Want To Send A Message To? (Valid Username):" << endl;
     getline(cin, username);
@@ -284,7 +405,25 @@ void sendMessage(User user){
         cout << "Message is to large max is 300 characters" << endl;
         getline(cin, message);
     }
-    saveMessageToDb(user.getUserId(), reciever.getUserId(), message);
+    
+    cout << "Enter the key used to protect your message? (min 16- max 32 characters):" << endl;
+    while (key.size() > 32) {
+        cout << "Key must be under 32 characters" << endl;
+        getline(cin, key);
+    }
+    while (key.size() < 16) {
+        cout << "Key must be above 16 characters" << endl;
+        getline(cin, key);
+    }
+    
+    string encryptedMessage = encrypt(message, key.c_str(), iv.c_str());
+    saveMessageToDb(user.getUserId(), reciever.getUserId(), encryptedMessage, iv);
+    cout << "encryptedMessage " + encryptedMessage << endl;
+    cout << encryptedMessage.c_str() << endl;
+    cout << "key " + key << endl;
+    cout << key.c_str() << endl;
+    cout << "iv " + iv << endl;
+    cout << iv.c_str() << endl;
     
     string optionSeletected;
     cout << "Enter number for the option you want:" << endl;
@@ -337,6 +476,7 @@ vector<Message> getConversation(int currentUserId, int otherPartyId){
             message.setSenderId(sqlite3_column_int(stmt, 1));
             message.setRecieverId(sqlite3_column_int(stmt, 2));
             message.setMessage(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))));
+            message.setIv(string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4))));
             conversation.push_back(message);
             }
         }
@@ -350,6 +490,7 @@ vector<Message> getConversation(int currentUserId, int otherPartyId){
 
 void viewMessages(User user){
     string username;
+    string key;
     
     cout << "Who's messages do you want to view? (Valid Username):" << endl;
     getline(cin, username);
@@ -363,9 +504,11 @@ void viewMessages(User user){
     
     if(conversation.size() == 0){
         cout << "You have not recieved or sent messages from/to this user" << endl;
-    }
+    }else{
+        cout << "Enter the key used to protect your message:" << endl;
+        cin >> key;
     
-    for(int i=0; i < conversation.size(); i++){
+        for(int i=0; i < conversation.size(); i++){
             string senderUsername;
             if(user.getUserId() == conversation[i].getSenderId()){
                 senderUsername = user.getUsername();
@@ -373,8 +516,23 @@ void viewMessages(User user){
             else(targetUser.getUserId() == conversation[i].getSenderId());{
                 senderUsername = targetUser.getUsername();
             }
-            cout << senderUsername + " : " + conversation[i].getMessage() << endl;
+            
+            string iv = conversation[i].getIv();
+            
+            string decryptedMessage = decrypt(conversation[i].getMessage(), key.c_str(), iv.c_str());
+            cout << senderUsername + " : " + decryptedMessage << endl;
+            cout << "encryptedMessage " + conversation[i].getMessage() << endl;
+            cout << conversation[i].getMessage().c_str() << endl;
+            cout << "decryptedMessage " + decryptedMessage << endl;
+            cout << decryptedMessage.c_str() << endl;
+            cout << "key " + key << endl;
+            cout << key.c_str() << endl;
+            cout << "iv " + iv << endl;
+            cout << iv.c_str() << endl;
+        }
     }
+    
+
     
     string optionSeletected;
     cout << "Enter number for the option you want:" << endl;
@@ -392,56 +550,6 @@ void viewMessages(User user){
         cout << "Exit And Logout - Selected" << endl;
     }
 }
-
-gcry_cipher_hd_t setUpCryptoCipher(char * salsaKey, char * iniVector){
-    gcry_cipher_hd_t gcryCipherHd;
-    gcry_cipher_open(
-        &gcryCipherHd, // gcry_cipher_hd_t *
-        GCRY_CIPHER_SALSA20,   // int
-        GCRY_CIPHER_MODE_STREAM,   // int
-        0);            // unsigned int
-    gcry_cipher_setkey(gcryCipherHd, salsaKey, 32);
-    gcry_cipher_setiv(gcryCipherHd, iniVector, 8);
-    return gcryCipherHd;
-}
-
-char * encrypt(string input, char * salsaKey, char * iniVector){
-    gcry_cipher_hd_t gcryCipherHd = setUpCryptoCipher(salsaKey, iniVector);
-    
-    size_t txtLength = input.length();
-    char * encBuffer = new char[txtLength];
-    char * textBuffer = new char[txtLength];
-    copy(input.begin(), input.end(), textBuffer);
-    textBuffer[input.size()] = '\0';
-    
-    printf("predecrypt: %s\n", encBuffer);
-    gcry_cipher_encrypt(
-        gcryCipherHd, // gcry_cipher_hd_t
-        encBuffer,    // void *
-        txtLength,    // size_t
-        textBuffer,    // const void *
-        txtLength);   // size_t
-    printf("postdecrypt: %s\n", encBuffer);
-    return encBuffer;
-}
-
-string decrypt(char * encBuffer, char * salsaKey, char * iniVector){
-    gcry_cipher_hd_t gcryCipherHd = setUpCryptoCipher(salsaKey, iniVector);
-
-    size_t txtLength = 101;
-    char * textBuffer = new char[txtLength];
-    
-    printf("predecrypt: %s\n", textBuffer);
-    gcry_cipher_decrypt( gcryCipherHd, // gcry_cipher_hd_t
-        encBuffer,    // void *
-        txtLength,    // size_t
-        textBuffer,    // const void *
-        txtLength);   // size_t
-    printf("postdecrypt: %s\n", textBuffer);    
-     string decryptedText(textBuffer, txtLength);
-     return decryptedText;
-}
-
 
 void mainMenu(User user){
     string optionSeletected;
@@ -497,109 +605,15 @@ void startingMenu(){
     }
 }
 
-gcry_cipher_hd_t setUpCipher(char * sym_key, char * init_vector){
-    #define GCRY_CIPHER GCRY_CIPHER_AES256   // Pick the cipher here
-    
-    int gcry_mode=GCRY_CIPHER_MODE_CBC;
-    
-    gcry_error_t     gcry_ret;
-    gcry_cipher_hd_t cipher_hd;
-
-    if (!gcry_control (GCRYCTL_ANY_INITIALIZATION_P)) {
-        gcry_check_version(NULL); /* before calling any other functions */
-    }
-
-    gcry_ret = gcry_cipher_open(
-        &cipher_hd,    // gcry_cipher_hd_t *hd
-        GCRY_CIPHER,   // int algo
-        gcry_mode,     // int mode
-        0);            // unsigned int flags
-    if (gcry_ret) {
-        printf("gcry_cipher_open failed:  %s/%s\n",
-                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
-        return cipher_hd;
-    }
-
-    size_t key_length = gcry_cipher_get_algo_keylen(GCRY_CIPHER);
-    gcry_ret = gcry_cipher_setkey(cipher_hd, sym_key, key_length);
-    if (gcry_ret) {
-        printf("gcry_cipher_setkey failed:  %s/%s\n",
-                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
-        return cipher_hd;
-    }
-
-    size_t blk_length = gcry_cipher_get_algo_blklen(GCRY_CIPHER);
-    gcry_ret = gcry_cipher_setiv(cipher_hd, init_vector, blk_length);
-    if (gcry_ret) {
-        printf("gcry_cipher_setiv failed:  %s/%s\n",
-                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
-        return cipher_hd;
-    }
-    return cipher_hd;
-}
-
-char * encrypt(char * plaintxt, char * sym_key, char * init_vector, int plaintxt_length)
-{
-    #define GCRY_CIPHER GCRY_CIPHER_AES256   // Pick the cipher here
-    
-    gcry_error_t     gcry_ret;
-    gcry_cipher_hd_t cipher_hd = setUpCipher(sym_key, init_vector);
-
-
-    char * encrypted_txt = (char *)malloc(plaintxt_length);
-    printf("plaintxt      = %s\n", plaintxt);
-    gcry_ret = gcry_cipher_encrypt(
-        cipher_hd,         // gcry_cipher_hd_t h
-        encrypted_txt,      // unsigned char *out
-        plaintxt_length,   // size_t outsize
-        plaintxt,          // const unsigned char *in
-        plaintxt_length);  // size_t inlen
-    if (gcry_ret) {
-        printf("gcry_cipher_encrypt failed:  %s/%s\n",
-                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
-        return encrypted_txt;
-    }
-    
-     printf("encrypted_txt = %s\n", encrypted_txt);
-
-    // clean up
-    gcry_cipher_close(cipher_hd);
-    return encrypted_txt;
-}
-
-void decrypt(char * encrypted_txt, char * sym_key, char * init_vector, int plaintxt_length)
-{
-    #define GCRY_CIPHER GCRY_CIPHER_AES256   // Pick the cipher here
-    
-    gcry_error_t     gcry_ret;
-    gcry_cipher_hd_t cipher_hd = setUpCipher(sym_key, init_vector);
-
-    char * decrpyted_txt = (char *)malloc(plaintxt_length);
-
-    gcry_ret = gcry_cipher_decrypt(
-        cipher_hd,          // gcry_cipher_hd_t h
-        decrpyted_txt,      // unsigned char *out
-        plaintxt_length,    // size_t outsize
-        encrypted_txt,       // const unsigned char *in
-        plaintxt_length);   // size_t inlen
-    if (gcry_ret) {
-        printf("gcry_cipher_decrypt failed:  %s/%s\n",
-                gcry_strsource(gcry_ret), gcry_strerror(gcry_ret));
-        return;
-    }
-    printf("decrpyted_txt = %s\n", decrpyted_txt);
-
-    // clean up
-    gcry_cipher_close(cipher_hd);
-    //return decrpyted_txt;
-}
-
-
 int main(){
     srand(time(NULL));
     createDatabase();
-    //size_t plaintxt_length = strlen(plaintxt) + 1; // string plus termination
-    decrypt(encrypt("123456789 abcdefghijklmnopqrstuvwzyz ABCDEFGHIJKLMNOPQRSTUVWZYZ", "one test AES key, just for test now", "a test ini value", 64), "one test AES key, just for test now", "a test ini value", 64);
+    
+    string message = "some data";
+    string iv = "100000000230179139";
+    string key = "keykeykeykeykeykey";
+    cout << decrypt(encrypt(message, key.c_str(), iv.c_str()), key.c_str(), iv.c_str()) << endl;
+
     startingMenu();
     
 };

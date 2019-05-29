@@ -16,6 +16,9 @@ class Message{
         int getRecieverId();
         int setRecieverId(int recieverId);
         
+        std::string getIv();
+        std::string setIv(std::string iv);
+        
         std::string getMessage();
         std::string setMessage(std::string message);
     
@@ -23,5 +26,6 @@ class Message{
         int messageId;
         int senderId;
         int recieverId;
+        std::string iv;
         std::string message;
 };
